@@ -56,13 +56,14 @@ async function run(): Promise<void> {
 
     core.debug(`Checking if branch ${releaseBranch} exists`)
 
-    const branch = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${releaseBranch}`
-    })
-
-    if (!branch.data) {
+    try {
+      await octokit.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${releaseBranch}`
+      })
+      core.debug(`Branch ${releaseBranch} exists`)
+    } catch {
       core.debug(`Branch ${releaseBranch} doesn't exist`)
       core.debug(`Creating branch ${releaseBranch} from the latest release`)
       await octokit.git.createRef({
@@ -71,8 +72,6 @@ async function run(): Promise<void> {
         ref: `heads/${releaseBranch}`,
         sha: latestRelease.target_commitish
       })
-    } else {
-      core.debug(`Branch ${releaseBranch} exists`)
     }
 
     // cherry-pick the commit from merged pull request

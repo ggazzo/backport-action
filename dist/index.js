@@ -79,12 +79,15 @@ function run() {
             core.debug(`Release branch: ${releaseBranch}`);
             // create a new branch from master if doesn't exist
             core.debug(`Checking if branch ${releaseBranch} exists`);
-            const branch = yield octokit.git.getRef({
-                owner,
-                repo,
-                ref: `heads/${releaseBranch}`
-            });
-            if (!branch.data) {
+            try {
+                yield octokit.git.getRef({
+                    owner,
+                    repo,
+                    ref: `heads/${releaseBranch}`
+                });
+                core.debug(`Branch ${releaseBranch} exists`);
+            }
+            catch (_a) {
                 core.debug(`Branch ${releaseBranch} doesn't exist`);
                 core.debug(`Creating branch ${releaseBranch} from the latest release`);
                 yield octokit.git.createRef({
@@ -93,9 +96,6 @@ function run() {
                     ref: `heads/${releaseBranch}`,
                     sha: latestRelease.target_commitish
                 });
-            }
-            else {
-                core.debug(`Branch ${releaseBranch} exists`);
             }
             // cherry-pick the commit from merged pull request
             core.debug(`Cherry-picking pull_request ${pull_request.number} to ${releaseBranch}`);
