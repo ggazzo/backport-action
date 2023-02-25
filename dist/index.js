@@ -8,11 +8,7 @@ require('./sourcemap-register.js');/******/ (() => { // webpackBootstrap
 
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
-    var desc = Object.getOwnPropertyDescriptor(m, k);
-    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
-      desc = { enumerable: true, get: function() { return m[k]; } };
-    }
-    Object.defineProperty(o, k2, desc);
+    Object.defineProperty(o, k2, { enumerable: true, get: function() { return m[k]; } });
 }) : (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
     o[k2] = m[k];
@@ -43,8 +39,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 const core = __importStar(__nccwpck_require__(2186));
-const action_1 = __nccwpck_require__(1231);
 const github = __importStar(__nccwpck_require__(5438));
+const action_1 = __nccwpck_require__(1231);
 const github_cherry_pick_1 = __nccwpck_require__(3825);
 const semver_1 = __importDefault(__nccwpck_require__(1383));
 /*
@@ -2126,7 +2122,7 @@ var pluginRestEndpointMethods = __nccwpck_require__(8528);
 
 const VERSION = "5.0.2";
 
-const HttpsProxyAgent = __nccwpck_require__(7219);
+const HttpsProxyAgent = __nccwpck_require__(6478);
 const DEFAULTS = {
   authStrategy: authAction.createActionAuth,
   baseUrl: getApiBaseUrl(),
@@ -4335,6 +4331,284 @@ exports.request = request;
 
 /***/ }),
 
+/***/ 8898:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
+    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
+    return new (P || (P = Promise))(function (resolve, reject) {
+        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
+        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
+        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
+        step((generator = generator.apply(thisArg, _arguments || [])).next());
+    });
+};
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const net_1 = __importDefault(__nccwpck_require__(1631));
+const tls_1 = __importDefault(__nccwpck_require__(4016));
+const url_1 = __importDefault(__nccwpck_require__(8835));
+const assert_1 = __importDefault(__nccwpck_require__(2357));
+const debug_1 = __importDefault(__nccwpck_require__(8237));
+const agent_base_1 = __nccwpck_require__(9690);
+const parse_proxy_response_1 = __importDefault(__nccwpck_require__(3723));
+const debug = debug_1.default('https-proxy-agent:agent');
+/**
+ * The `HttpsProxyAgent` implements an HTTP Agent subclass that connects to
+ * the specified "HTTP(s) proxy server" in order to proxy HTTPS requests.
+ *
+ * Outgoing HTTP requests are first tunneled through the proxy server using the
+ * `CONNECT` HTTP request method to establish a connection to the proxy server,
+ * and then the proxy server connects to the destination target and issues the
+ * HTTP request from the proxy server.
+ *
+ * `https:` requests have their socket connection upgraded to TLS once
+ * the connection to the proxy server has been established.
+ *
+ * @api public
+ */
+class HttpsProxyAgent extends agent_base_1.Agent {
+    constructor(_opts) {
+        let opts;
+        if (typeof _opts === 'string') {
+            opts = url_1.default.parse(_opts);
+        }
+        else {
+            opts = _opts;
+        }
+        if (!opts) {
+            throw new Error('an HTTP(S) proxy server `host` and `port` must be specified!');
+        }
+        debug('creating new HttpsProxyAgent instance: %o', opts);
+        super(opts);
+        const proxy = Object.assign({}, opts);
+        // If `true`, then connect to the proxy server over TLS.
+        // Defaults to `false`.
+        this.secureProxy = opts.secureProxy || isHTTPS(proxy.protocol);
+        // Prefer `hostname` over `host`, and set the `port` if needed.
+        proxy.host = proxy.hostname || proxy.host;
+        if (typeof proxy.port === 'string') {
+            proxy.port = parseInt(proxy.port, 10);
+        }
+        if (!proxy.port && proxy.host) {
+            proxy.port = this.secureProxy ? 443 : 80;
+        }
+        // ALPN is supported by Node.js >= v5.
+        // attempt to negotiate http/1.1 for proxy servers that support http/2
+        if (this.secureProxy && !('ALPNProtocols' in proxy)) {
+            proxy.ALPNProtocols = ['http 1.1'];
+        }
+        if (proxy.host && proxy.path) {
+            // If both a `host` and `path` are specified then it's most likely
+            // the result of a `url.parse()` call... we need to remove the
+            // `path` portion so that `net.connect()` doesn't attempt to open
+            // that as a Unix socket file.
+            delete proxy.path;
+            delete proxy.pathname;
+        }
+        this.proxy = proxy;
+    }
+    /**
+     * Called when the node-core HTTP client library is creating a
+     * new HTTP request.
+     *
+     * @api protected
+     */
+    callback(req, opts) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const { proxy, secureProxy } = this;
+            // Create a socket connection to the proxy server.
+            let socket;
+            if (secureProxy) {
+                debug('Creating `tls.Socket`: %o', proxy);
+                socket = tls_1.default.connect(proxy);
+            }
+            else {
+                debug('Creating `net.Socket`: %o', proxy);
+                socket = net_1.default.connect(proxy);
+            }
+            const headers = Object.assign({}, proxy.headers);
+            const hostname = `${opts.host}:${opts.port}`;
+            let payload = `CONNECT ${hostname} HTTP/1.1\r\n`;
+            // Inject the `Proxy-Authorization` header if necessary.
+            if (proxy.auth) {
+                headers['Proxy-Authorization'] = `Basic ${Buffer.from(proxy.auth).toString('base64')}`;
+            }
+            // The `Host` header should only include the port
+            // number when it is not the default port.
+            let { host, port, secureEndpoint } = opts;
+            if (!isDefaultPort(port, secureEndpoint)) {
+                host += `:${port}`;
+            }
+            headers.Host = host;
+            headers.Connection = 'close';
+            for (const name of Object.keys(headers)) {
+                payload += `${name}: ${headers[name]}\r\n`;
+            }
+            const proxyResponsePromise = parse_proxy_response_1.default(socket);
+            socket.write(`${payload}\r\n`);
+            const { statusCode, buffered } = yield proxyResponsePromise;
+            if (statusCode === 200) {
+                req.once('socket', resume);
+                if (opts.secureEndpoint) {
+                    // The proxy is connecting to a TLS server, so upgrade
+                    // this socket connection to a TLS connection.
+                    debug('Upgrading socket connection to TLS');
+                    const servername = opts.servername || opts.host;
+                    return tls_1.default.connect(Object.assign(Object.assign({}, omit(opts, 'host', 'hostname', 'path', 'port')), { socket,
+                        servername }));
+                }
+                return socket;
+            }
+            // Some other status code that's not 200... need to re-play the HTTP
+            // header "data" events onto the socket once the HTTP machinery is
+            // attached so that the node core `http` can parse and handle the
+            // error status code.
+            // Close the original socket, and a new "fake" socket is returned
+            // instead, so that the proxy doesn't get the HTTP request
+            // written to it (which may contain `Authorization` headers or other
+            // sensitive data).
+            //
+            // See: https://hackerone.com/reports/541502
+            socket.destroy();
+            const fakeSocket = new net_1.default.Socket({ writable: false });
+            fakeSocket.readable = true;
+            // Need to wait for the "socket" event to re-play the "data" events.
+            req.once('socket', (s) => {
+                debug('replaying proxy buffer for failed request');
+                assert_1.default(s.listenerCount('data') > 0);
+                // Replay the "buffered" Buffer onto the fake `socket`, since at
+                // this point the HTTP module machinery has been hooked up for
+                // the user.
+                s.push(buffered);
+                s.push(null);
+            });
+            return fakeSocket;
+        });
+    }
+}
+exports.default = HttpsProxyAgent;
+function resume(socket) {
+    socket.resume();
+}
+function isDefaultPort(port, secure) {
+    return Boolean((!secure && port === 80) || (secure && port === 443));
+}
+function isHTTPS(protocol) {
+    return typeof protocol === 'string' ? /^https:?$/i.test(protocol) : false;
+}
+function omit(obj, ...keys) {
+    const ret = {};
+    let key;
+    for (key in obj) {
+        if (!keys.includes(key)) {
+            ret[key] = obj[key];
+        }
+    }
+    return ret;
+}
+//# sourceMappingURL=agent.js.map
+
+/***/ }),
+
+/***/ 6478:
+/***/ (function(module, __unused_webpack_exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+const agent_1 = __importDefault(__nccwpck_require__(8898));
+function createHttpsProxyAgent(opts) {
+    return new agent_1.default(opts);
+}
+(function (createHttpsProxyAgent) {
+    createHttpsProxyAgent.HttpsProxyAgent = agent_1.default;
+    createHttpsProxyAgent.prototype = agent_1.default.prototype;
+})(createHttpsProxyAgent || (createHttpsProxyAgent = {}));
+module.exports = createHttpsProxyAgent;
+//# sourceMappingURL=index.js.map
+
+/***/ }),
+
+/***/ 3723:
+/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
+
+"use strict";
+
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+const debug_1 = __importDefault(__nccwpck_require__(8237));
+const debug = debug_1.default('https-proxy-agent:parse-proxy-response');
+function parseProxyResponse(socket) {
+    return new Promise((resolve, reject) => {
+        // we need to buffer any HTTP traffic that happens with the proxy before we get
+        // the CONNECT response, so that if the response is anything other than an "200"
+        // response code, then we can re-play the "data" events on the socket once the
+        // HTTP parser is hooked up...
+        let buffersLength = 0;
+        const buffers = [];
+        function read() {
+            const b = socket.read();
+            if (b)
+                ondata(b);
+            else
+                socket.once('readable', read);
+        }
+        function cleanup() {
+            socket.removeListener('end', onend);
+            socket.removeListener('error', onerror);
+            socket.removeListener('close', onclose);
+            socket.removeListener('readable', read);
+        }
+        function onclose(err) {
+            debug('onclose had error %o', err);
+        }
+        function onend() {
+            debug('onend');
+        }
+        function onerror(err) {
+            cleanup();
+            debug('onerror %o', err);
+            reject(err);
+        }
+        function ondata(b) {
+            buffers.push(b);
+            buffersLength += b.length;
+            const buffered = Buffer.concat(buffers, buffersLength);
+            const endOfHeaders = buffered.indexOf('\r\n\r\n');
+            if (endOfHeaders === -1) {
+                // keep buffering
+                debug('have not received end of HTTP headers yet...');
+                read();
+                return;
+            }
+            const firstLine = buffered.toString('ascii', 0, buffered.indexOf('\r\n'));
+            const statusCode = +firstLine.split(' ')[1];
+            debug('got proxy server response: %o', firstLine);
+            resolve({
+                statusCode,
+                buffered
+            });
+        }
+        socket.on('error', onerror);
+        socket.on('close', onclose);
+        socket.on('end', onend);
+        read();
+    });
+}
+exports.default = parseProxyResponse;
+//# sourceMappingURL=parse-proxy-response.js.map
+
+/***/ }),
+
 /***/ 20:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -4426,6 +4700,69 @@ exports.createTokenAuth = createTokenAuth;
 
 /***/ }),
 
+/***/ 334:
+/***/ ((__unused_webpack_module, exports) => {
+
+"use strict";
+
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+
+const REGEX_IS_INSTALLATION_LEGACY = /^v1\./;
+const REGEX_IS_INSTALLATION = /^ghs_/;
+const REGEX_IS_USER_TO_SERVER = /^ghu_/;
+async function auth(token) {
+  const isApp = token.split(/\./).length === 3;
+  const isInstallation = REGEX_IS_INSTALLATION_LEGACY.test(token) || REGEX_IS_INSTALLATION.test(token);
+  const isUserToServer = REGEX_IS_USER_TO_SERVER.test(token);
+  const tokenType = isApp ? "app" : isInstallation ? "installation" : isUserToServer ? "user-to-server" : "oauth";
+  return {
+    type: "token",
+    token: token,
+    tokenType
+  };
+}
+
+/**
+ * Prefix token for usage in the Authorization header
+ *
+ * @param token OAuth token or JSON Web Token
+ */
+function withAuthorizationPrefix(token) {
+  if (token.split(/\./).length === 3) {
+    return `bearer ${token}`;
+  }
+
+  return `token ${token}`;
+}
+
+async function hook(token, request, route, parameters) {
+  const endpoint = request.endpoint.merge(route, parameters);
+  endpoint.headers.authorization = withAuthorizationPrefix(token);
+  return request(endpoint);
+}
+
+const createTokenAuth = function createTokenAuth(token) {
+  if (!token) {
+    throw new Error("[@octokit/auth-token] No token passed to createTokenAuth");
+  }
+
+  if (typeof token !== "string") {
+    throw new Error("[@octokit/auth-token] Token passed to createTokenAuth is not a string");
+  }
+
+  token = token.replace(/^(token|bearer) +/i, "");
+  return Object.assign(auth.bind(null, token), {
+    hook: hook.bind(null, token)
+  });
+};
+
+exports.createTokenAuth = createTokenAuth;
+//# sourceMappingURL=index.js.map
+
+
+/***/ }),
+
 /***/ 6762:
 /***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
 
@@ -4438,7 +4775,7 @@ var universalUserAgent = __nccwpck_require__(5030);
 var beforeAfterHook = __nccwpck_require__(3682);
 var request = __nccwpck_require__(6234);
 var graphql = __nccwpck_require__(8467);
-var authToken = __nccwpck_require__(5542);
+var authToken = __nccwpck_require__(334);
 
 function _objectWithoutPropertiesLoose(source, excluded) {
   if (source == null) return {};
@@ -4605,69 +4942,6 @@ Octokit.VERSION = VERSION;
 Octokit.plugins = [];
 
 exports.Octokit = Octokit;
-//# sourceMappingURL=index.js.map
-
-
-/***/ }),
-
-/***/ 5542:
-/***/ ((__unused_webpack_module, exports) => {
-
-"use strict";
-
-
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-
-const REGEX_IS_INSTALLATION_LEGACY = /^v1\./;
-const REGEX_IS_INSTALLATION = /^ghs_/;
-const REGEX_IS_USER_TO_SERVER = /^ghu_/;
-async function auth(token) {
-  const isApp = token.split(/\./).length === 3;
-  const isInstallation = REGEX_IS_INSTALLATION_LEGACY.test(token) || REGEX_IS_INSTALLATION.test(token);
-  const isUserToServer = REGEX_IS_USER_TO_SERVER.test(token);
-  const tokenType = isApp ? "app" : isInstallation ? "installation" : isUserToServer ? "user-to-server" : "oauth";
-  return {
-    type: "token",
-    token: token,
-    tokenType
-  };
-}
-
-/**
- * Prefix token for usage in the Authorization header
- *
- * @param token OAuth token or JSON Web Token
- */
-function withAuthorizationPrefix(token) {
-  if (token.split(/\./).length === 3) {
-    return `bearer ${token}`;
-  }
-
-  return `token ${token}`;
-}
-
-async function hook(token, request, route, parameters) {
-  const endpoint = request.endpoint.merge(route, parameters);
-  endpoint.headers.authorization = withAuthorizationPrefix(token);
-  return request(endpoint);
-}
-
-const createTokenAuth = function createTokenAuth(token) {
-  if (!token) {
-    throw new Error("[@octokit/auth-token] No token passed to createTokenAuth");
-  }
-
-  if (typeof token !== "string") {
-    throw new Error("[@octokit/auth-token] Token passed to createTokenAuth is not a string");
-  }
-
-  token = token.replace(/^(token|bearer) +/i, "");
-  return Object.assign(auth.bind(null, token), {
-    hook: hook.bind(null, token)
-  });
-};
-
-exports.createTokenAuth = createTokenAuth;
 //# sourceMappingURL=index.js.map
 
 
@@ -7217,21 +7491,12 @@ function removeHook(state, name, method) {
  * This is the web browser implementation of `debug()`.
  */
 
+exports.log = log;
 exports.formatArgs = formatArgs;
 exports.save = save;
 exports.load = load;
 exports.useColors = useColors;
 exports.storage = localstorage();
-exports.destroy = (() => {
-	let warned = false;
-
-	return () => {
-		if (!warned) {
-			warned = true;
-			console.warn('Instance method `debug.destroy()` is deprecated and no longer does anything. It will be removed in the next major version of `debug`.');
-		}
-	};
-})();
 
 /**
  * Colors.
@@ -7392,14 +7657,18 @@ function formatArgs(args) {
 }
 
 /**
- * Invokes `console.debug()` when available.
- * No-op when `console.debug` is not a "function".
- * If `console.debug` is not available, falls back
- * to `console.log`.
+ * Invokes `console.log()` when available.
+ * No-op when `console.log` is not a "function".
  *
  * @api public
  */
-exports.log = console.debug || console.log || (() => {});
+function log(...args) {
+	// This hackery is required for IE8/9, where
+	// the `console.log` function doesn't have 'apply'
+	return typeof console === 'object' &&
+		console.log &&
+		console.log(...args);
+}
 
 /**
  * Save `namespaces`.
@@ -7501,11 +7770,15 @@ function setup(env) {
 	createDebug.enable = enable;
 	createDebug.enabled = enabled;
 	createDebug.humanize = __nccwpck_require__(900);
-	createDebug.destroy = destroy;
 
 	Object.keys(env).forEach(key => {
 		createDebug[key] = env[key];
 	});
+
+	/**
+	* Active `debug` instances.
+	*/
+	createDebug.instances = [];
 
 	/**
 	* The currently active debug mode names, and names to skip.
@@ -7523,7 +7796,7 @@ function setup(env) {
 
 	/**
 	* Selects a color for a debug namespace
-	* @param {String} namespace The namespace string for the debug instance to be colored
+	* @param {String} namespace The namespace string for the for the debug instance to be colored
 	* @return {Number|String} An ANSI color code for the given namespace
 	* @api private
 	*/
@@ -7548,9 +7821,6 @@ function setup(env) {
 	*/
 	function createDebug(namespace) {
 		let prevTime;
-		let enableOverride = null;
-		let namespacesCache;
-		let enabledCache;
 
 		function debug(...args) {
 			// Disabled?
@@ -7580,7 +7850,7 @@ function setup(env) {
 			args[0] = args[0].replace(/%([a-zA-Z%])/g, (match, format) => {
 				// If we encounter an escaped % then don't increase the array index
 				if (match === '%%') {
-					return '%';
+					return match;
 				}
 				index++;
 				const formatter = createDebug.formatters[format];
@@ -7603,36 +7873,31 @@ function setup(env) {
 		}
 
 		debug.namespace = namespace;
+		debug.enabled = createDebug.enabled(namespace);
 		debug.useColors = createDebug.useColors();
-		debug.color = createDebug.selectColor(namespace);
+		debug.color = selectColor(namespace);
+		debug.destroy = destroy;
 		debug.extend = extend;
-		debug.destroy = createDebug.destroy; // XXX Temporary. Will be removed in the next major release.
+		// Debug.formatArgs = formatArgs;
+		// debug.rawLog = rawLog;
 
-		Object.defineProperty(debug, 'enabled', {
-			enumerable: true,
-			configurable: false,
-			get: () => {
-				if (enableOverride !== null) {
-					return enableOverride;
-				}
-				if (namespacesCache !== createDebug.namespaces) {
-					namespacesCache = createDebug.namespaces;
-					enabledCache = createDebug.enabled(namespace);
-				}
-
-				return enabledCache;
-			},
-			set: v => {
-				enableOverride = v;
-			}
-		});
-
-		// Env-specific initialization logic for debug instances
+		// env-specific initialization logic for debug instances
 		if (typeof createDebug.init === 'function') {
 			createDebug.init(debug);
 		}
 
+		createDebug.instances.push(debug);
+
 		return debug;
+	}
+
+	function destroy() {
+		const index = createDebug.instances.indexOf(this);
+		if (index !== -1) {
+			createDebug.instances.splice(index, 1);
+			return true;
+		}
+		return false;
 	}
 
 	function extend(namespace, delimiter) {
@@ -7650,7 +7915,6 @@ function setup(env) {
 	*/
 	function enable(namespaces) {
 		createDebug.save(namespaces);
-		createDebug.namespaces = namespaces;
 
 		createDebug.names = [];
 		createDebug.skips = [];
@@ -7668,10 +7932,15 @@ function setup(env) {
 			namespaces = split[i].replace(/\*/g, '.*?');
 
 			if (namespaces[0] === '-') {
-				createDebug.skips.push(new RegExp('^' + namespaces.slice(1) + '$'));
+				createDebug.skips.push(new RegExp('^' + namespaces.substr(1) + '$'));
 			} else {
 				createDebug.names.push(new RegExp('^' + namespaces + '$'));
 			}
+		}
+
+		for (i = 0; i < createDebug.instances.length; i++) {
+			const instance = createDebug.instances[i];
+			instance.enabled = createDebug.enabled(instance.namespace);
 		}
 	}
 
@@ -7747,14 +8016,6 @@ function setup(env) {
 		return val;
 	}
 
-	/**
-	* XXX DO NOT USE. This is a temporary stub function.
-	* XXX It WILL be removed in the next major release.
-	*/
-	function destroy() {
-		console.warn('Instance method `debug.destroy()` is deprecated and no longer does anything. It will be removed in the next major version of `debug`.');
-	}
-
 	createDebug.enable(createDebug.load());
 
 	return createDebug;
@@ -7802,10 +8063,6 @@ exports.formatArgs = formatArgs;
 exports.save = save;
 exports.load = load;
 exports.useColors = useColors;
-exports.destroy = util.deprecate(
-	() => {},
-	'Instance method `debug.destroy()` is deprecated and no longer does anything. It will be removed in the next major version of `debug`.'
-);
 
 /**
  * Colors.
@@ -8035,9 +8292,7 @@ const {formatters} = module.exports;
 formatters.o = function (v) {
 	this.inspectOpts.colors = this.useColors;
 	return util.inspect(v, this.inspectOpts)
-		.split('\n')
-		.map(str => str.trim())
-		.join(' ');
+		.replace(/\s*\n\s*/g, ' ');
 };
 
 /**
@@ -8285,292 +8540,14 @@ exports.cherryPickCommits = cherryPickCommits;
 
 "use strict";
 
-
-module.exports = (flag, argv = process.argv) => {
+module.exports = (flag, argv) => {
+	argv = argv || process.argv;
 	const prefix = flag.startsWith('-') ? '' : (flag.length === 1 ? '-' : '--');
-	const position = argv.indexOf(prefix + flag);
-	const terminatorPosition = argv.indexOf('--');
-	return position !== -1 && (terminatorPosition === -1 || position < terminatorPosition);
+	const pos = argv.indexOf(prefix + flag);
+	const terminatorPos = argv.indexOf('--');
+	return pos !== -1 && (terminatorPos === -1 ? true : pos < terminatorPos);
 };
 
-
-/***/ }),
-
-/***/ 5098:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-const net_1 = __importDefault(__nccwpck_require__(1631));
-const tls_1 = __importDefault(__nccwpck_require__(4016));
-const url_1 = __importDefault(__nccwpck_require__(8835));
-const assert_1 = __importDefault(__nccwpck_require__(2357));
-const debug_1 = __importDefault(__nccwpck_require__(8237));
-const agent_base_1 = __nccwpck_require__(9690);
-const parse_proxy_response_1 = __importDefault(__nccwpck_require__(595));
-const debug = debug_1.default('https-proxy-agent:agent');
-/**
- * The `HttpsProxyAgent` implements an HTTP Agent subclass that connects to
- * the specified "HTTP(s) proxy server" in order to proxy HTTPS requests.
- *
- * Outgoing HTTP requests are first tunneled through the proxy server using the
- * `CONNECT` HTTP request method to establish a connection to the proxy server,
- * and then the proxy server connects to the destination target and issues the
- * HTTP request from the proxy server.
- *
- * `https:` requests have their socket connection upgraded to TLS once
- * the connection to the proxy server has been established.
- *
- * @api public
- */
-class HttpsProxyAgent extends agent_base_1.Agent {
-    constructor(_opts) {
-        let opts;
-        if (typeof _opts === 'string') {
-            opts = url_1.default.parse(_opts);
-        }
-        else {
-            opts = _opts;
-        }
-        if (!opts) {
-            throw new Error('an HTTP(S) proxy server `host` and `port` must be specified!');
-        }
-        debug('creating new HttpsProxyAgent instance: %o', opts);
-        super(opts);
-        const proxy = Object.assign({}, opts);
-        // If `true`, then connect to the proxy server over TLS.
-        // Defaults to `false`.
-        this.secureProxy = opts.secureProxy || isHTTPS(proxy.protocol);
-        // Prefer `hostname` over `host`, and set the `port` if needed.
-        proxy.host = proxy.hostname || proxy.host;
-        if (typeof proxy.port === 'string') {
-            proxy.port = parseInt(proxy.port, 10);
-        }
-        if (!proxy.port && proxy.host) {
-            proxy.port = this.secureProxy ? 443 : 80;
-        }
-        // ALPN is supported by Node.js >= v5.
-        // attempt to negotiate http/1.1 for proxy servers that support http/2
-        if (this.secureProxy && !('ALPNProtocols' in proxy)) {
-            proxy.ALPNProtocols = ['http 1.1'];
-        }
-        if (proxy.host && proxy.path) {
-            // If both a `host` and `path` are specified then it's most likely
-            // the result of a `url.parse()` call... we need to remove the
-            // `path` portion so that `net.connect()` doesn't attempt to open
-            // that as a Unix socket file.
-            delete proxy.path;
-            delete proxy.pathname;
-        }
-        this.proxy = proxy;
-    }
-    /**
-     * Called when the node-core HTTP client library is creating a
-     * new HTTP request.
-     *
-     * @api protected
-     */
-    callback(req, opts) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const { proxy, secureProxy } = this;
-            // Create a socket connection to the proxy server.
-            let socket;
-            if (secureProxy) {
-                debug('Creating `tls.Socket`: %o', proxy);
-                socket = tls_1.default.connect(proxy);
-            }
-            else {
-                debug('Creating `net.Socket`: %o', proxy);
-                socket = net_1.default.connect(proxy);
-            }
-            const headers = Object.assign({}, proxy.headers);
-            const hostname = `${opts.host}:${opts.port}`;
-            let payload = `CONNECT ${hostname} HTTP/1.1\r\n`;
-            // Inject the `Proxy-Authorization` header if necessary.
-            if (proxy.auth) {
-                headers['Proxy-Authorization'] = `Basic ${Buffer.from(proxy.auth).toString('base64')}`;
-            }
-            // The `Host` header should only include the port
-            // number when it is not the default port.
-            let { host, port, secureEndpoint } = opts;
-            if (!isDefaultPort(port, secureEndpoint)) {
-                host += `:${port}`;
-            }
-            headers.Host = host;
-            headers.Connection = 'close';
-            for (const name of Object.keys(headers)) {
-                payload += `${name}: ${headers[name]}\r\n`;
-            }
-            const proxyResponsePromise = parse_proxy_response_1.default(socket);
-            socket.write(`${payload}\r\n`);
-            const { statusCode, buffered } = yield proxyResponsePromise;
-            if (statusCode === 200) {
-                req.once('socket', resume);
-                if (opts.secureEndpoint) {
-                    // The proxy is connecting to a TLS server, so upgrade
-                    // this socket connection to a TLS connection.
-                    debug('Upgrading socket connection to TLS');
-                    const servername = opts.servername || opts.host;
-                    return tls_1.default.connect(Object.assign(Object.assign({}, omit(opts, 'host', 'hostname', 'path', 'port')), { socket,
-                        servername }));
-                }
-                return socket;
-            }
-            // Some other status code that's not 200... need to re-play the HTTP
-            // header "data" events onto the socket once the HTTP machinery is
-            // attached so that the node core `http` can parse and handle the
-            // error status code.
-            // Close the original socket, and a new "fake" socket is returned
-            // instead, so that the proxy doesn't get the HTTP request
-            // written to it (which may contain `Authorization` headers or other
-            // sensitive data).
-            //
-            // See: https://hackerone.com/reports/541502
-            socket.destroy();
-            const fakeSocket = new net_1.default.Socket({ writable: false });
-            fakeSocket.readable = true;
-            // Need to wait for the "socket" event to re-play the "data" events.
-            req.once('socket', (s) => {
-                debug('replaying proxy buffer for failed request');
-                assert_1.default(s.listenerCount('data') > 0);
-                // Replay the "buffered" Buffer onto the fake `socket`, since at
-                // this point the HTTP module machinery has been hooked up for
-                // the user.
-                s.push(buffered);
-                s.push(null);
-            });
-            return fakeSocket;
-        });
-    }
-}
-exports.default = HttpsProxyAgent;
-function resume(socket) {
-    socket.resume();
-}
-function isDefaultPort(port, secure) {
-    return Boolean((!secure && port === 80) || (secure && port === 443));
-}
-function isHTTPS(protocol) {
-    return typeof protocol === 'string' ? /^https:?$/i.test(protocol) : false;
-}
-function omit(obj, ...keys) {
-    const ret = {};
-    let key;
-    for (key in obj) {
-        if (!keys.includes(key)) {
-            ret[key] = obj[key];
-        }
-    }
-    return ret;
-}
-//# sourceMappingURL=agent.js.map
-
-/***/ }),
-
-/***/ 7219:
-/***/ (function(module, __unused_webpack_exports, __nccwpck_require__) {
-
-"use strict";
-
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-const agent_1 = __importDefault(__nccwpck_require__(5098));
-function createHttpsProxyAgent(opts) {
-    return new agent_1.default(opts);
-}
-(function (createHttpsProxyAgent) {
-    createHttpsProxyAgent.HttpsProxyAgent = agent_1.default;
-    createHttpsProxyAgent.prototype = agent_1.default.prototype;
-})(createHttpsProxyAgent || (createHttpsProxyAgent = {}));
-module.exports = createHttpsProxyAgent;
-//# sourceMappingURL=index.js.map
-
-/***/ }),
-
-/***/ 595:
-/***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
-
-"use strict";
-
-var __importDefault = (this && this.__importDefault) || function (mod) {
-    return (mod && mod.__esModule) ? mod : { "default": mod };
-};
-Object.defineProperty(exports, "__esModule", ({ value: true }));
-const debug_1 = __importDefault(__nccwpck_require__(8237));
-const debug = debug_1.default('https-proxy-agent:parse-proxy-response');
-function parseProxyResponse(socket) {
-    return new Promise((resolve, reject) => {
-        // we need to buffer any HTTP traffic that happens with the proxy before we get
-        // the CONNECT response, so that if the response is anything other than an "200"
-        // response code, then we can re-play the "data" events on the socket once the
-        // HTTP parser is hooked up...
-        let buffersLength = 0;
-        const buffers = [];
-        function read() {
-            const b = socket.read();
-            if (b)
-                ondata(b);
-            else
-                socket.once('readable', read);
-        }
-        function cleanup() {
-            socket.removeListener('end', onend);
-            socket.removeListener('error', onerror);
-            socket.removeListener('close', onclose);
-            socket.removeListener('readable', read);
-        }
-        function onclose(err) {
-            debug('onclose had error %o', err);
-        }
-        function onend() {
-            debug('onend');
-        }
-        function onerror(err) {
-            cleanup();
-            debug('onerror %o', err);
-            reject(err);
-        }
-        function ondata(b) {
-            buffers.push(b);
-            buffersLength += b.length;
-            const buffered = Buffer.concat(buffers, buffersLength);
-            const endOfHeaders = buffered.indexOf('\r\n\r\n');
-            if (endOfHeaders === -1) {
-                // keep buffering
-                debug('have not received end of HTTP headers yet...');
-                read();
-                return;
-            }
-            const firstLine = buffered.toString('ascii', 0, buffered.indexOf('\r\n'));
-            const statusCode = +firstLine.split(' ')[1];
-            debug('got proxy server response: %o', firstLine);
-            resolve({
-                statusCode,
-                buffered
-            });
-        }
-        socket.on('error', onerror);
-        socket.on('close', onclose);
-        socket.on('end', onend);
-        read();
-    });
-}
-exports.default = parseProxyResponse;
-//# sourceMappingURL=parse-proxy-response.js.map
 
 /***/ }),
 
@@ -13272,7 +13249,7 @@ module.exports = Comparator
 
 const parseOptions = __nccwpck_require__(785)
 const { re, t } = __nccwpck_require__(9523)
-const cmp = __nccwpck_require__(4359)
+const cmp = __nccwpck_require__(5098)
 const debug = __nccwpck_require__(427)
 const SemVer = __nccwpck_require__(8088)
 const Range = __nccwpck_require__(9828)
@@ -14116,7 +14093,7 @@ module.exports = clean
 
 /***/ }),
 
-/***/ 4359:
+/***/ 5098:
 /***/ ((module, __unused_webpack_exports, __nccwpck_require__) => {
 
 const eq = __nccwpck_require__(1898)
@@ -14557,7 +14534,7 @@ const eq = __nccwpck_require__(1898)
 const neq = __nccwpck_require__(6017)
 const gte = __nccwpck_require__(5522)
 const lte = __nccwpck_require__(7520)
-const cmp = __nccwpck_require__(4359)
+const cmp = __nccwpck_require__(5098)
 const coerce = __nccwpck_require__(3466)
 const Comparator = __nccwpck_require__(1532)
 const Range = __nccwpck_require__(9828)
@@ -15709,32 +15686,23 @@ module.exports = v4;
 "use strict";
 
 const os = __nccwpck_require__(2087);
-const tty = __nccwpck_require__(3867);
 const hasFlag = __nccwpck_require__(1621);
 
-const {env} = process;
+const env = process.env;
 
 let forceColor;
 if (hasFlag('no-color') ||
 	hasFlag('no-colors') ||
-	hasFlag('color=false') ||
-	hasFlag('color=never')) {
-	forceColor = 0;
+	hasFlag('color=false')) {
+	forceColor = false;
 } else if (hasFlag('color') ||
 	hasFlag('colors') ||
 	hasFlag('color=true') ||
 	hasFlag('color=always')) {
-	forceColor = 1;
+	forceColor = true;
 }
-
 if ('FORCE_COLOR' in env) {
-	if (env.FORCE_COLOR === 'true') {
-		forceColor = 1;
-	} else if (env.FORCE_COLOR === 'false') {
-		forceColor = 0;
-	} else {
-		forceColor = env.FORCE_COLOR.length === 0 ? 1 : Math.min(parseInt(env.FORCE_COLOR, 10), 3);
-	}
+	forceColor = env.FORCE_COLOR.length === 0 || parseInt(env.FORCE_COLOR, 10) !== 0;
 }
 
 function translateLevel(level) {
@@ -15750,8 +15718,8 @@ function translateLevel(level) {
 	};
 }
 
-function supportsColor(haveStream, streamIsTTY) {
-	if (forceColor === 0) {
+function supportsColor(stream) {
+	if (forceColor === false) {
 		return 0;
 	}
 
@@ -15765,21 +15733,22 @@ function supportsColor(haveStream, streamIsTTY) {
 		return 2;
 	}
 
-	if (haveStream && !streamIsTTY && forceColor === undefined) {
+	if (stream && !stream.isTTY && forceColor !== true) {
 		return 0;
 	}
 
-	const min = forceColor || 0;
-
-	if (env.TERM === 'dumb') {
-		return min;
-	}
+	const min = forceColor ? 1 : 0;
 
 	if (process.platform === 'win32') {
-		// Windows 10 build 10586 is the first Windows release that supports 256 colors.
-		// Windows 10 build 14931 is the first release that supports 16m/TrueColor.
+		// Node.js 7.5.0 is the first version of Node.js to include a patch to
+		// libuv that enables 256 color output on Windows. Anything earlier and it
+		// won't work. However, here we target Node.js 8 at minimum as it is an LTS
+		// release, and Node.js 7 is not. Windows 10 build 10586 is the first Windows
+		// release that supports 256 colors. Windows 10 build 14931 is the first release
+		// that supports 16m/TrueColor.
 		const osRelease = os.release().split('.');
 		if (
+			Number(process.versions.node.split('.')[0]) >= 8 &&
 			Number(osRelease[0]) >= 10 &&
 			Number(osRelease[2]) >= 10586
 		) {
@@ -15790,7 +15759,7 @@ function supportsColor(haveStream, streamIsTTY) {
 	}
 
 	if ('CI' in env) {
-		if (['TRAVIS', 'CIRCLECI', 'APPVEYOR', 'GITLAB_CI', 'GITHUB_ACTIONS', 'BUILDKITE'].some(sign => sign in env) || env.CI_NAME === 'codeship') {
+		if (['TRAVIS', 'CIRCLECI', 'APPVEYOR', 'GITLAB_CI'].some(sign => sign in env) || env.CI_NAME === 'codeship') {
 			return 1;
 		}
 
@@ -15829,18 +15798,22 @@ function supportsColor(haveStream, streamIsTTY) {
 		return 1;
 	}
 
+	if (env.TERM === 'dumb') {
+		return min;
+	}
+
 	return min;
 }
 
 function getSupportLevel(stream) {
-	const level = supportsColor(stream, stream && stream.isTTY);
+	const level = supportsColor(stream);
 	return translateLevel(level);
 }
 
 module.exports = {
 	supportsColor: getSupportLevel,
-	stdout: translateLevel(supportsColor(true, tty.isatty(1))),
-	stderr: translateLevel(supportsColor(true, tty.isatty(2)))
+	stdout: getSupportLevel(process.stdout),
+	stderr: getSupportLevel(process.stderr)
 };
 
 
