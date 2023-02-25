@@ -73,6 +73,7 @@ function run() {
             core.debug(`Latest release: ${latestRelease.tag_name}`);
             // calculates the next patch version
             core.debug(`Calculating next patch version`);
+            // TODO: improve prefix handling (e.g. v1.0.0) and coercion (e.g. 1.0.0-alpha.1)
             const releaseVersion = semver_1.default.inc(latestRelease.tag_name, 'patch');
             const releaseBranch = `release/${releaseVersion}`;
             core.debug(`Next patch version: ${releaseVersion}`);
@@ -93,7 +94,7 @@ function run() {
                 yield octokit.git.createRef({
                     owner,
                     repo,
-                    ref: `heads/${releaseBranch}`,
+                    ref: `/refs/heads/${releaseBranch}`,
                     sha: latestRelease.target_commitish
                 });
             }
