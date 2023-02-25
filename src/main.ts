@@ -1,6 +1,6 @@
 import * as core from '@actions/core'
-import {Octokit} from '@octokit/action'
 import * as github from '@actions/github'
+import {Octokit} from '@octokit/action'
 
 import {cherryPickCommits} from 'github-cherry-pick'
 
