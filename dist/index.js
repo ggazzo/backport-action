@@ -47,10 +47,10 @@ const semver_1 = __importDefault(__nccwpck_require__(1383));
   Hotfix procedure:
   gets the latest version of the action from the repo
   calculates the next patch version
-  create a new branch from master if doesn't exist
+  create a new branch from main if doesn't exist
   cherry-pick the commit from merged pull request
   push the branch to the repo
-  create a new draft pull request from the branch to master if doesn't exist
+  create a new draft pull request from the branch to main if doesn't exist
 */
 const octokit = new action_1.Octokit();
 function run() {
@@ -73,29 +73,38 @@ function run() {
             core.debug(`Latest release: ${latestRelease.tag_name}`);
             // calculates the next patch version
             core.debug(`Calculating next patch version`);
+            // TODO: improve prefix handling (e.g. v1.0.0) and coercion (e.g. 1.0.0-alpha.1)
             const releaseVersion = semver_1.default.inc(latestRelease.tag_name, 'patch');
-            const releaseBranch = `release/${releaseVersion}`;
+            const releaseBranch = `release-${releaseVersion}`;
             core.debug(`Next patch version: ${releaseVersion}`);
             core.debug(`Release branch: ${releaseBranch}`);
-            // create a new branch from master if doesn't exist
-            core.debug(`Checking if branch ${releaseBranch} exists`);
-            const branch = yield octokit.git.getRef({
+            // gets the sha of the latest release
+            core.debug(`Getting sha of the latest release`);
+            const { data: latestReleaseCommit } = yield octokit.git.getRef({
                 owner,
                 repo,
-                ref: `heads/${releaseBranch}`
+                ref: `tags/${latestRelease.tag_name}`
             });
-            if (!branch.data) {
+            core.debug(`Latest release sha: ${latestReleaseCommit.object.sha}`);
+            // create a new branch from main if doesn't exist
+            core.debug(`Checking if branch ${releaseBranch} exists`);
+            try {
+                yield octokit.git.getRef({
+                    owner,
+                    repo,
+                    ref: `heads/${releaseBranch}`
+                });
+                core.debug(`Branch ${releaseBranch} exists`);
+            }
+            catch (_a) {
                 core.debug(`Branch ${releaseBranch} doesn't exist`);
                 core.debug(`Creating branch ${releaseBranch} from the latest release`);
                 yield octokit.git.createRef({
                     owner,
                     repo,
-                    ref: `heads/${releaseBranch}`,
-                    sha: latestRelease.target_commitish
+                    ref: `refs/heads/${releaseBranch}`,
+                    sha: latestReleaseCommit.object.sha
                 });
-            }
-            else {
-                core.debug(`Branch ${releaseBranch} exists`);
             }
             // cherry-pick the commit from merged pull request
             core.debug(`Cherry-picking pull_request ${pull_request.number} to ${releaseBranch}`);
@@ -107,21 +116,21 @@ function run() {
                 owner,
                 repo
             });
-            // create a new draft pull request from the branch to master if doesn't exist
-            core.debug(`Creating pull request from ${releaseBranch} to master`);
+            // create a new draft pull request from the branch to main if doesn't exist
+            core.debug(`Creating pull request from ${releaseBranch} to main`);
             const pullRequest = yield octokit.pulls.create({
                 owner,
                 repo,
                 title: `Release ${releaseVersion}`,
                 head: releaseBranch,
-                base: 'master',
+                base: 'main',
                 draft: true
             });
             core.debug(`Pull request created: ${pullRequest.data.number}`);
         }
         catch (error) {
             if (error instanceof Error)
-                core.setFailed(error.message);
+                core.setFailed(JSON.stringify(error));
         }
     });
 }

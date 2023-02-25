@@ -10,10 +10,10 @@ import semver from 'semver'
   Hotfix procedure:
   gets the latest version of the action from the repo
   calculates the next patch version
-  create a new branch from master if doesn't exist
+  create a new branch from main if doesn't exist
   cherry-pick the commit from merged pull request
   push the branch to the repo
-  create a new draft pull request from the branch to master if doesn't exist
+  create a new draft pull request from the branch to main if doesn't exist
 */
 
 const octokit = new Octokit()
@@ -44,35 +44,47 @@ async function run(): Promise<void> {
     // calculates the next patch version
 
     core.debug(`Calculating next patch version`)
-
+    // TODO: improve prefix handling (e.g. v1.0.0) and coercion (e.g. 1.0.0-alpha.1)
     const releaseVersion = semver.inc(latestRelease.tag_name, 'patch')
 
-    const releaseBranch = `release/${releaseVersion}`
+    const releaseBranch = `release-${releaseVersion}`
 
     core.debug(`Next patch version: ${releaseVersion}`)
     core.debug(`Release branch: ${releaseBranch}`)
 
-    // create a new branch from master if doesn't exist
+    // gets the sha of the latest release
+
+    core.debug(`Getting sha of the latest release`)
+
+    const {data: latestReleaseCommit} = await octokit.git.getRef({
+      owner,
+      repo,
+      ref: `tags/${latestRelease.tag_name}`
+    })
+
+    core.debug(`Latest release sha: ${latestReleaseCommit.object.sha}`)
+
+    // create a new branch from main if doesn't exist
 
     core.debug(`Checking if branch ${releaseBranch} exists`)
 
-    const branch = await octokit.git.getRef({
-      owner,
-      repo,
-      ref: `heads/${releaseBranch}`
-    })
-
-    if (!branch.data) {
+    try {
+      await octokit.git.getRef({
+        owner,
+        repo,
+        ref: `heads/${releaseBranch}`
+      })
+      core.debug(`Branch ${releaseBranch} exists`)
+    } catch {
       core.debug(`Branch ${releaseBranch} doesn't exist`)
       core.debug(`Creating branch ${releaseBranch} from the latest release`)
+
       await octokit.git.createRef({
         owner,
         repo,
-        ref: `heads/${releaseBranch}`,
-        sha: latestRelease.target_commitish
+        ref: `refs/heads/${releaseBranch}`,
+        sha: latestReleaseCommit.object.sha
       })
-    } else {
-      core.debug(`Branch ${releaseBranch} exists`)
     }
 
     // cherry-pick the commit from merged pull request
@@ -90,22 +102,22 @@ async function run(): Promise<void> {
       repo
     })
 
-    // create a new draft pull request from the branch to master if doesn't exist
+    // create a new draft pull request from the branch to main if doesn't exist
 
-    core.debug(`Creating pull request from ${releaseBranch} to master`)
+    core.debug(`Creating pull request from ${releaseBranch} to main`)
 
     const pullRequest = await octokit.pulls.create({
       owner,
       repo,
       title: `Release ${releaseVersion}`,
       head: releaseBranch,
-      base: 'master',
+      base: 'main',
       draft: true
     })
 
     core.debug(`Pull request created: ${pullRequest.data.number}`)
   } catch (error) {
-    if (error instanceof Error) core.setFailed(error.message)
+    if (error instanceof Error) core.setFailed(JSON.stringify(error))
   }
 }
 
