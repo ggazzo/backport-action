@@ -14,5 +14,6 @@ jobs:
         || (github.event.action == 'closed')
       )
     steps:
+      - uses: actions/checkout@v3
       - name: Hotfix Action
         uses: ../..
