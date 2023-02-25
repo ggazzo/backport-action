@@ -15,4 +15,4 @@ jobs:
       )
     steps:
       - name: Hotfix Action
-        uses: ./
+        uses: ../../
