@@ -75,7 +75,7 @@ function run() {
             core.debug(`Calculating next patch version`);
             // TODO: improve prefix handling (e.g. v1.0.0) and coercion (e.g. 1.0.0-alpha.1)
             const releaseVersion = semver_1.default.inc(latestRelease.tag_name, 'patch');
-            const releaseBranch = `release/${releaseVersion}`;
+            const releaseBranch = `release-${releaseVersion}`;
             core.debug(`Next patch version: ${releaseVersion}`);
             core.debug(`Release branch: ${releaseBranch}`);
             // create a new branch from master if doesn't exist

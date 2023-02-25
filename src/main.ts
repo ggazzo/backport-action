@@ -47,7 +47,7 @@ async function run(): Promise<void> {
     // TODO: improve prefix handling (e.g. v1.0.0) and coercion (e.g. 1.0.0-alpha.1)
     const releaseVersion = semver.inc(latestRelease.tag_name, 'patch')
 
-    const releaseBranch = `release/${releaseVersion}`
+    const releaseBranch = `release-${releaseVersion}`
 
     core.debug(`Next patch version: ${releaseVersion}`)
     core.debug(`Release branch: ${releaseBranch}`)
