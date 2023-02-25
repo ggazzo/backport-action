@@ -19,3 +19,4 @@ jobs:
         uses: ggazzo/backport-action@v1.1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIONS_RUNNER_DEBUG: true
