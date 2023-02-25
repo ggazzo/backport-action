@@ -1,0 +1,18 @@
+on:
+  pull_request_target:
+    types: ['labeled', 'closed']
+
+jobs:
+  backport:
+    name: Hotfix PR
+    runs-on: ubuntu-latest
+    if: |
+      github.event.pull_request.merged == true
+      && contains(github.event.pull_request.labels.*.name, 'hotfix')
+      && (
+        (github.event.action == 'labeled' && github.event.label.name == 'hotfix')
+        || (github.event.action == 'closed')
+      )
+    steps:
+      - name: Hotfix Action
+        uses: ./
