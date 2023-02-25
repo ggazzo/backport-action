@@ -1,5 +1,5 @@
 name: 'Hotfix Release'
-description: 'A GitHub action that manages patch releases'
+description: 'A GitHub action that manages hotfix/patch releases'
 author: 'Guilherme Gazzo'
 runs:
   using: 'node16'
