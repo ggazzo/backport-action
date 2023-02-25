@@ -85,6 +85,7 @@ function run() {
                 repo,
                 ref: `tags/${latestRelease.tag_name}`
             });
+            core.debug(`Latest release sha: ${latestReleaseCommit.object.sha}`);
             // create a new branch from main if doesn't exist
             core.debug(`Checking if branch ${releaseBranch} exists`);
             try {
@@ -101,7 +102,7 @@ function run() {
                 yield octokit.git.createRef({
                     owner,
                     repo,
-                    ref: `/refs/heads/${releaseBranch}`,
+                    ref: `refs/heads/${releaseBranch}`,
                     sha: latestReleaseCommit.object.sha
                 });
             }
