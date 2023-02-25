@@ -17,3 +17,5 @@ jobs:
       - uses: actions/checkout@v3
       - name: Hotfix Action
         uses: ./
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
