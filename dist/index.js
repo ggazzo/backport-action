@@ -107,15 +107,37 @@ function run() {
                 });
             }
             // cherry-pick the commit from merged pull request
-            core.debug(`Cherry-picking pull_request ${pull_request.number} to ${releaseBranch}`);
+            core.debug(`Cherry-picking pull_request ${pull_request.number} to ${releaseBranch} sha: ${pull_request.merge_commit_sha}`);
             // merge_commit_sha
-            yield (0, github_cherry_pick_1.cherryPickCommits)({
-                commits: [pull_request.merge_commit_sha],
-                head: releaseBranch,
-                octokit,
-                owner,
-                repo
-            });
+            try {
+                yield (0, github_cherry_pick_1.cherryPickCommits)({
+                    commits: [pull_request.merge_commit_sha],
+                    head: releaseBranch,
+                    octokit,
+                    owner,
+                    repo
+                });
+            }
+            catch (error) {
+                // create a pull trying to merge the cherry-picked commit to the release branch
+                const mergedBranch = `${releaseBranch}-${pull_request.number}-conflict`;
+                yield octokit.git.createRef({
+                    owner,
+                    repo,
+                    ref: `refs/heads/${mergedBranch}}`,
+                    sha: pull_request.merge_commit_sha
+                });
+                // merge conflict message
+                yield octokit.rest.issues.createComment(Object.assign(Object.assign({}, github.context.repo), { issue_number: pull_request.number, body: `There was a merge conflict when cherry-picking the commit \`#${pull_request.merge_commit_sha}\` to the release branch \`${releaseBranch}\`. 
+        Please resolve the merge conflict and push the branch to the repo.
+        \`\`\`
+        git checkout ${mergedBranch}
+        git merge ${releaseBranch}
+        // resolve merge conflict
+        git push origin ${mergedBranch}
+        \`\`\`
+        ` }));
+            }
             // create a new draft pull request from the branch to main if doesn't exist
             core.debug(`Creating pull request from ${releaseBranch} to main`);
             const pullRequest = yield octokit.pulls.create({
