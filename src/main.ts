@@ -122,10 +122,12 @@ async function run(): Promise<void> {
         body: `There was a merge conflict when cherry-picking the commit \`#${pull_request.merge_commit_sha}\` to the release branch \`${releaseBranch}\`. 
         Please resolve the merge conflict and push the branch to the repo.
         \`\`\`
+        
         git checkout ${mergedBranch}
         git merge ${releaseBranch}
         // resolve merge conflict
         git push origin ${mergedBranch}
+
         \`\`\`
         `
       })
