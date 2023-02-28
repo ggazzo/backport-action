@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Hotfix Action
-        uses: ggazzo/backport-action@1.0.4
+        uses: ggazzo/backport-action@1.0.7
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
           ACTIONS_RUNNER_DEBUG: true
